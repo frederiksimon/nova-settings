@@ -86,10 +86,10 @@ class SettingsController extends Controller
 
             $existingRow = $settingsClass::where('key', $field->attribute)->first();
 
-            $tempResource =  new \stdClass;
+            $tempResource = new \Laravel\Nova\Support\Fluent;
             $field->fill($request, $tempResource);
 
-            if (!property_exists($tempResource, $field->attribute)) return;
+            if (!array_key_exists($field->attribute, $tempResource->getAttributes())) return;
 
             if (isset($existingRow)) {
                 $existingRow->value = $tempResource->{$field->attribute};
@@ -115,7 +115,7 @@ class SettingsController extends Controller
 
         $existingRow = NovaSettings::getSettingsModel()::where('key', $fieldName)->first();
         if (isset($existingRow)) {
-            $field = collect(NovaSettings::getFields($pathName))->firstWhere('attribute', $fieldName);
+            $field = $this->findField(collect(NovaSettings::getFields($pathName)), $fieldName);
 
             // Delete file if exists
             if (isset($field) && $field instanceof \Laravel\Nova\Fields\File) {
@@ -130,9 +130,33 @@ class SettingsController extends Controller
         return response('', 204);
     }
 
+    protected function findField($fields, $fieldName)
+    {
+        if (empty($fields)) return null;
+
+        $field = $fields->firstWhere('attribute', $fieldName);
+
+        // Target field might be inside container field
+        if (empty($field)) {
+            foreach ($fields as $value) {
+                if ($value instanceof \Laravel\Nova\Panel) {
+                    $field = $this->findField(collect($value->data), $fieldName);
+                    if (!empty($field)) return $field;
+                }
+
+                if (class_exists('\Eminiarts\Tabs\Tabs') && $value instanceof \Eminiarts\Tabs\Tabs) {
+                    $field = $this->findField(collect($value->data, $fieldName));
+                    if (!empty($field)) return $field;
+                }
+            }
+        }
+
+        return $field;
+    }
+
     protected function availableFields($path = 'general')
     {
-        return (new FieldCollection(($this->filter(NovaSettings::getFields($path)))))->authorized(request());
+        return (new FieldCollection($this->filter(NovaSettings::getFields($path))))->authorized(request());
     }
 
     protected function fields(Request $request, $path = 'general')
@@ -142,7 +166,7 @@ class SettingsController extends Controller
 
     protected function makeFakeResource(string $fieldName, $fieldValue)
     {
-        $fakeResource = new \stdClass;
+        $fakeResource = new \Laravel\Nova\Support\Fluent;
         $fakeResource->{$fieldName} = $fieldValue;
         return $fakeResource;
     }

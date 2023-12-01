@@ -4,7 +4,8 @@
 
     <form v-if="fields && fields.length" @submit.prevent="update" autocomplete="off" dusk="nova-settings-form">
       <template v-for="panel in panelsWithFields" :key="panel.name">
-        <form-panel
+        <component
+          :is="`form-` + panel.component"
           :panel="panel"
           :name="panel.name"
           :fields="panel.fields"
@@ -13,13 +14,20 @@
           mode="form"
           class="mb-6"
           :validation-errors="validationErrors"
+          :show-help-text="true"
         />
       </template>
       <!-- Update Button -->
       <div class="flex items-center" v-if="authorizations.authorizedToUpdate">
-        <LoadingButton type="submit" class="ml-auto" :disabled="isUpdating" :processing="isUpdating">
+        <SettingsLoadingButton
+          dusk="update-button"
+          type="submit"
+          class="ml-auto"
+          :disabled="isUpdating"
+          :processing="isUpdating"
+        >
           {{ __('novaSettings.saveButtonText') }}
-        </LoadingButton>
+        </SettingsLoadingButton>
       </div>
     </form>
 
@@ -75,6 +83,12 @@ export default {
       this.panels = panels;
       this.authorizations = authorizations;
       this.loading = false;
+
+      // Dispatch event
+      const eventName = this.isUpdating ? 'resource-updated' : 'resource-loaded';
+      Nova.$emit(eventName, {
+        resourceName: 'nova-settings',
+      });
     },
     async update() {
       try {
@@ -122,7 +136,8 @@ export default {
           name: panel.name,
           component: panel.component,
           helpText: panel.helpText,
-          fields: this.fields.filter(field => field.panel == panel.name),
+          fields: this.fields.filter(field => field.panel === panel.name),
+          showTitle: panel.showTitle,
         };
       });
     },
