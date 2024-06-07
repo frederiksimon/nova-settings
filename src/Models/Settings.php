@@ -4,13 +4,22 @@ namespace Outl1ne\NovaSettings\Models;
 
 use Outl1ne\NovaSettings\NovaSettings;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\Translatable\HasTranslations;
 
 class Settings extends Model
 {
+    use HasTranslations;
     protected $primaryKey = 'key';
     public $incrementing = false;
     public $timestamps = false;
     public $fillable = ['key', 'value'];
+
+    public $translatable = [
+        'default_meta_title',
+        'default_meta_description',
+    ];
 
     public function __construct(array $attributes = [])
     {

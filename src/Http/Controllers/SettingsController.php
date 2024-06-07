@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Laravel\Nova\ResolvesFields;
 use Illuminate\Routing\Controller;
 use Laravel\Nova\Contracts\Resolvable;
+use Outl1ne\NovaSettings\Nova\Resources\Settings;
 use Outl1ne\NovaSettings\NovaSettings;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Nova\Fields\FieldCollection;
@@ -27,6 +28,7 @@ class SettingsController extends Controller
         $fields = $this->assignToPanels($label, $this->availableFields($path));
         $panels = $this->panelsWithDefaultLabel($label, app(NovaRequest::class));
 
+//        dd($fields);
         $addResolveCallback = function (&$field) {
             if (!empty($field->attribute)) {
                 $setting = NovaSettings::getSettingsModel()::firstOrNew(['key' => $field->attribute]);
@@ -36,9 +38,22 @@ class SettingsController extends Controller
 
             if (!empty($field->meta['fields'])) {
                 foreach ($field->meta['fields'] as $_field) {
-                    $setting = NovaSettings::getSettingsModel()::where('key', $_field->attribute)->first();
-                    $fakeResource = $this->makeFakeResource($_field->attribute, isset($setting) ? $setting->value : null);
-                    $_field->resolve($fakeResource);
+                    if (!empty($_field->meta['locale'])) {
+                        $setting = NovaSettings::getSettingsModel()::where('key', $_field->meta['originalAttribute'])->first();
+                        $locale = $_field->meta['locale'];
+                        $settingValue = $setting->value[$locale];
+
+                        $fakeResource = $this->makeFakeResource($_field->attribute, isset($setting) ? $settingValue : null);
+                        $_field->resolve($fakeResource);
+                        $_field->value = $settingValue;
+                    }
+                    else {
+                        $setting = NovaSettings::getSettingsModel()::where('key', $_field->attribute)->first();
+                        $settingValue = isset($setting) ? $settingValue : null;
+
+                        $fakeResource = $this->makeFakeResource($_field->attribute, isset($setting) ? $settingValue : null);
+                        $_field->resolve($fakeResource);
+                    }
                 }
             }
         };
@@ -46,7 +61,6 @@ class SettingsController extends Controller
         $fields->each(function (&$field) use ($addResolveCallback) {
             $addResolveCallback($field);
         });
-
         return response()->json([
             'panels' => $panels,
             'fields' => $fields,
@@ -62,8 +76,8 @@ class SettingsController extends Controller
 
         // NovaDependencyContainer support
         $fields = $fields->map(function ($field) {
-            if (!empty($field->attribute)) return $field;
             if (!empty($field->meta['fields'])) return $field->meta['fields'];
+            if (!empty($field->attribute)) return $field;
             return null;
         })->filter()->flatten();
 
@@ -73,7 +87,6 @@ class SettingsController extends Controller
             $field->resolve($fakeResource, $field->attribute); // For nova-translatable support
             $rules = array_merge($rules, $field->getUpdateRules($request));
         }
-
         Validator::make($request->all(), $rules)->validate();
 
         $fields->whereInstanceOf(Resolvable::class)->each(function ($field) use ($request) {
@@ -81,10 +94,39 @@ class SettingsController extends Controller
             if ($field->isReadonly(app(NovaRequest::class))) return;
             $settingsClass = NovaSettings::getSettingsModel();
 
+            $isTranslatable = false;
+
+            if (!empty($field->meta['originalAttribute'])) {
+                $isTranslatable = true;
+                $field->attribute = $field->meta['originalAttribute'];
+            }
+
             // For nova-translatable support
             if (!empty($field->meta['translatable']['original_attribute'])) $field->attribute = $field->meta['translatable']['original_attribute'];
 
             $existingRow = $settingsClass::where('key', $field->attribute)->first();
+
+            if ($isTranslatable) {
+                $requestVals = $request->all();
+                foreach (config('tab-translatable.locales') as $trLocale) {
+                    if (array_key_exists('translations_' . $field->attribute . '_' . $trLocale, $requestVals)) {
+                        $translatedValues[$trLocale] = $requestVals['translations_' . $field->attribute . '_' . $trLocale];
+                    }
+                }
+                $translatedValues = json_encode($translatedValues);
+
+                if (isset($existingRow)) {
+                    $existingRow->value = $translatedValues;
+                    $existingRow->save();
+                } else {
+                    $newRow = new $settingsClass;
+                    $newRow->key = $field->attribute;
+                    $newRow->value = $translatedValues;
+                    $newRow->save();
+                }
+
+                return;
+            }
 
             $tempResource = new \Laravel\Nova\Support\Fluent;
             $field->fill($request, $tempResource);
@@ -101,7 +143,6 @@ class SettingsController extends Controller
                 $newRow->save();
             }
         });
-
         if (config('nova-settings.reload_page_on_save', false) === true) {
             return response()->json(['reload' => true]);
         }
