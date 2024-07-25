@@ -41,7 +41,7 @@ class SettingsController extends Controller
                     if (!empty($_field->meta['locale'])) {
                         $setting = NovaSettings::getSettingsModel()::where('key', $_field->meta['originalAttribute'])->first();
                         $locale = $_field->meta['locale'];
-                        $settingValue = $setting->value[$locale];
+                        $settingValue = isset($setting) ? $setting?->value[$locale] : null;
 
                         $fakeResource = $this->makeFakeResource($_field->attribute, isset($setting) ? $settingValue : null);
                         $_field->resolve($fakeResource);
